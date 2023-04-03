@@ -22,7 +22,7 @@ public class Tests
     public async Task Response_Should_Be_Welcome_Message()
     {
         using var conversation = virtualPhone.CreateConversation(toPhoneNumber);
-        await conversation.SendMessage("Hi");
+        _ = conversation.SendMessage("Hi");
         var message = await conversation.WaitForMessage(TimeSpan.FromSeconds(10));
         Assert.Equal("Welcome to Twilio SMS.  For more information, see http://twilio.com/sms", message.Body);
     }
@@ -31,15 +31,13 @@ public class Tests
     public async Task Response_Should_Be_Welcome_Message_Twice()
     {
         using var conversation = virtualPhone.CreateConversation(toPhoneNumber);
-        await conversation.SendMessage("Hi");
-        await conversation.SendMessage("Hi again");
+        _ = conversation.SendMessage("Hi");
+        _ = conversation.SendMessage("Hi again");
 
-        await Task.Delay(TimeSpan.FromSeconds(4));
+        var messages = await conversation.WaitForMessages(2, TimeSpan.FromSeconds(10));
 
-        Assert.Equal(4, conversation.Messages.Count);
-
-        Assert.Equal("Welcome to Twilio SMS.  For more information, see http://twilio.com/sms", conversation.Messages[2].Body);
-        Assert.Equal("Welcome to Twilio SMS.  For more information, see http://twilio.com/sms", conversation.Messages[3].Body);
+        Assert.Equal("Welcome to Twilio SMS.  For more information, see http://twilio.com/sms", messages[0].Body);
+        Assert.Equal("Welcome to Twilio SMS.  For more information, see http://twilio.com/sms", messages[1].Body);
     }
 
     [Fact]

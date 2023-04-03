@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Threading.Channels;
 using Twilio.AspNet.Core;
 using Twilio.Clients;
 using Twilio.Rest.Api.V2010.Account;
@@ -127,42 +128,44 @@ public class VirtualPhone : IAsyncDisposable
 public class Conversation : IDisposable
 {
     private readonly VirtualPhone virtualPhone;
-    private readonly List<MessageResource> messages = new();
-    private TaskCompletionSource<MessageResource>? waitForMessageTaskCompletion;
+    private readonly Channel<MessageResource> incomingMessageChannel;
 
     public PhoneNumber To { get; init; }
-    public IReadOnlyList<MessageResource> Messages => messages.AsReadOnly();
 
     internal Conversation(VirtualPhone virtualPhone, PhoneNumber to)
     {
         this.virtualPhone = virtualPhone;
         To = to;
+        incomingMessageChannel = Channel.CreateUnbounded<MessageResource>();
     }
 
     public async Task<MessageResource> SendMessage(string body)
     {
         var message = await virtualPhone.SendMessage(To, body);
-        messages.Add(message);
         return message;
     }
 
     internal void OnMessageReceived(MessageResource message)
     {
-        messages.Add(message);
-        if (waitForMessageTaskCompletion != null)
-        {
-            waitForMessageTaskCompletion.SetResult(message);
-            waitForMessageTaskCompletion = null;
-        }
+        _ = incomingMessageChannel.Writer.WriteAsync(message);
     }
 
-    public async Task<MessageResource> WaitForMessage(TimeSpan timeToWait)
+    public async ValueTask<MessageResource> WaitForMessage(TimeSpan timeToWait)
     {
-        waitForMessageTaskCompletion?.SetCanceled();
-        waitForMessageTaskCompletion = new TaskCompletionSource<MessageResource>();
         using var cts = new CancellationTokenSource(timeToWait);
-        cts.Token.Register(() => waitForMessageTaskCompletion?.TrySetCanceled());
-        return await waitForMessageTaskCompletion.Task;
+        return await incomingMessageChannel.Reader.ReadAsync(cts.Token);
+    }
+
+    public async Task<IReadOnlyList<MessageResource>> WaitForMessages(int amountOfMessages, TimeSpan timeToWait)
+    {
+        var messages = new List<MessageResource>(amountOfMessages);
+        using var cts = new CancellationTokenSource(timeToWait);
+        for (; amountOfMessages > 0; amountOfMessages--)
+        {
+            messages.Add(await incomingMessageChannel.Reader.ReadAsync(cts.Token));
+        }
+
+        return messages;
     }
 
     public void Dispose()
