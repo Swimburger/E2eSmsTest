@@ -4,6 +4,9 @@ using System.Reflection;
 
 namespace E2eSms.Test;
 
+/// <summary>
+/// Fixture that creates the VirtualPhone using configuration section "VirtualPhone" from appsettings.json, user secrets, and environment variables.
+/// </summary>
 public class VirtualPhoneFixture : IAsyncLifetime
 {
     public VirtualPhone? VirtualPhone { get; set; }

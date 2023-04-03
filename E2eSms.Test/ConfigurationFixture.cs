@@ -3,6 +3,9 @@ using System.Reflection;
 
 namespace E2eSms.Test;
 
+/// <summary>
+/// Fixture that loads configuration from appsettings.json, user secrets, and environment variables.
+/// </summary>
 public class ConfigurationFixture
 {
     public IConfigurationRoot Configuration { get; set; }
