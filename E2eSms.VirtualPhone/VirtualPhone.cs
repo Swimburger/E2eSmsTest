@@ -15,9 +15,7 @@ public class VirtualPhone : IAsyncDisposable
 {
     private readonly WebApplication webApplication;
     private readonly PhoneNumber fromPhoneNumber;
-
-    private TaskCompletionSource<MessageResource>? waitForResponseTaskCompletion;
-    private PhoneNumber? phoneNumberToReceiveSms;
+    private readonly Dictionary<string, Conversation> conversations = new();
 
     private VirtualPhone(WebApplication webApplication, PhoneNumber fromPhoneNumber)
     {
@@ -89,19 +87,29 @@ public class VirtualPhone : IAsyncDisposable
     )
     {
         var form = await request.ReadFormAsync();
-        var from = form["From"];
+        var from = form["From"].ToString();
         if (string.IsNullOrEmpty(from)) return;
-        if (from.ToString() != phoneNumberToReceiveSms?.ToString()) return;
 
-        var message = await MessageResource.FetchAsync(pathSid: form["MessageSid"], client: twilioClient);
-        waitForResponseTaskCompletion?.SetResult(message);
-        waitForResponseTaskCompletion = null;
+        if (conversations.TryGetValue(from, out var conversation))
+        {
+            var message = await MessageResource.FetchAsync(pathSid: form["MessageSid"], client: twilioClient);
+            conversation.OnMessageReceived(message);
+        }
     }
 
-    public async Task SendSms(PhoneNumber to, string body)
+    public Conversation CreateConversation(PhoneNumber to)
+    {
+        var conversation = new Conversation(this, to);
+        conversations.Add(to.ToString(), conversation);
+        return conversation;
+    }
+
+    internal void RemoveConversation(PhoneNumber to) => conversations.Remove(to.ToString());
+
+    internal async Task<MessageResource> SendMessage(PhoneNumber to, string body)
     {
         var twilioClient = webApplication.Services.GetRequiredService<ITwilioRestClient>();
-        await MessageResource.CreateAsync(
+        return await MessageResource.CreateAsync(
             to: to,
             from: fromPhoneNumber,
             body: body,
@@ -109,19 +117,56 @@ public class VirtualPhone : IAsyncDisposable
         );
     }
 
-    public async Task<MessageResource> ReceiveSms(PhoneNumber phoneNumber)
-    {
-        phoneNumberToReceiveSms = phoneNumber;
-        waitForResponseTaskCompletion?.SetCanceled();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        cts.Token.Register(() => waitForResponseTaskCompletion?.TrySetCanceled());
-        waitForResponseTaskCompletion = new TaskCompletionSource<MessageResource>();
-        return await waitForResponseTaskCompletion.Task;
-    }
-
     public async ValueTask DisposeAsync()
     {
         await webApplication.StopAsync();
         await webApplication.DisposeAsync();
+    }
+}
+
+public class Conversation : IDisposable
+{
+    private readonly VirtualPhone virtualPhone;
+    private readonly List<MessageResource> messages = new();
+    private TaskCompletionSource<MessageResource>? waitForMessageTaskCompletion;
+
+    public PhoneNumber To { get; init; }
+    public IReadOnlyList<MessageResource> Messages => messages.AsReadOnly();
+
+    internal Conversation(VirtualPhone virtualPhone, PhoneNumber to)
+    {
+        this.virtualPhone = virtualPhone;
+        To = to;
+    }
+
+    public async Task<MessageResource> SendMessage(string body)
+    {
+        var message = await virtualPhone.SendMessage(To, body);
+        messages.Add(message);
+        return message;
+    }
+
+    internal void OnMessageReceived(MessageResource message)
+    {
+        messages.Add(message);
+        if (waitForMessageTaskCompletion != null)
+        {
+            waitForMessageTaskCompletion.SetResult(message);
+            waitForMessageTaskCompletion = null;
+        }
+    }
+
+    public async Task<MessageResource> WaitForMessage(TimeSpan timeToWait)
+    {
+        waitForMessageTaskCompletion?.SetCanceled();
+        waitForMessageTaskCompletion = new TaskCompletionSource<MessageResource>();
+        using var cts = new CancellationTokenSource(timeToWait);
+        cts.Token.Register(() => waitForMessageTaskCompletion?.TrySetCanceled());
+        return await waitForMessageTaskCompletion.Task;
+    }
+
+    public void Dispose()
+    {
+        virtualPhone.RemoveConversation(To);
     }
 }

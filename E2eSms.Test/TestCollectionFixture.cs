@@ -1,6 +1,6 @@
 ﻿namespace E2eSms.Test;
 
-[CollectionDefinition("TestCollection")]
+[CollectionDefinition("TestCollection", DisableParallelization = true)]
 public class TestCollectionFixture : 
     ICollectionFixture<ConfigurationFixture>, 
     ICollectionFixture<VirtualPhoneFixture>
