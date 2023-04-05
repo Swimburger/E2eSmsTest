@@ -1,10 +1,10 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿using System.Threading.Channels;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System.Threading.Channels;
 using Twilio.AspNet.Core;
 using Twilio.Clients;
 using Twilio.Rest.Api.V2010.Account;
@@ -124,7 +124,7 @@ public class VirtualPhone : IAsyncDisposable
         if (conversations.TryGetValue(from, out var conversation))
         {
             var message = await MessageResource.FetchAsync(pathSid: form["MessageSid"], client: twilioClient);
-            conversation.OnMessageReceived(message);
+            await conversation.OnMessageReceived(message);
         }
     }
 
@@ -171,6 +171,7 @@ public class Conversation : IDisposable
 {
     /// <summary>The VirtualPhone to send messages from and receive messages at.</summary>
     private readonly VirtualPhone virtualPhone;
+
     /// <summary>Channel to write incoming messages to and read incoming messages from.</summary>
     private readonly Channel<MessageResource> incomingMessageChannel = Channel.CreateUnbounded<MessageResource>();
 
@@ -198,10 +199,10 @@ public class Conversation : IDisposable
 
     /// <summary>Called when a message is received from the To phone number, addressed to the VirtualPhone.From number.</summary>
     /// <param name="message">The incoming message</param>
-    internal void OnMessageReceived(MessageResource message)
+    internal async Task OnMessageReceived(MessageResource message)
     {
         // no need to wait Task, discard
-        _ = incomingMessageChannel.Writer.WriteAsync(message);
+        await incomingMessageChannel.Writer.WriteAsync(message);
     }
 
     /// <summary>Waits for a single message to be received from the To phone number.</summary>

@@ -1,8 +1,25 @@
-﻿using E2eSmsTest;
+﻿using System.Reflection;
 using Microsoft.Extensions.Configuration;
-using System.Reflection;
+using Xunit;
 
-namespace E2eSms.Test;
+namespace E2eSmsTest;
+
+/// <summary>
+/// Fixture that loads configuration from appsettings.json, user secrets, and environment variables.
+/// </summary>
+public class ConfigurationFixture
+{
+    public IConfigurationRoot Configuration { get; set; }
+
+    public ConfigurationFixture()
+    {
+        Configuration = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true, reloadOnChange: true)
+            .AddEnvironmentVariables()
+            .Build();
+    }
+}
 
 /// <summary>
 /// Fixture that creates the VirtualPhone using configuration section "VirtualPhone" from appsettings.json, user secrets, and environment variables.
@@ -27,4 +44,11 @@ public class VirtualPhoneFixture : IAsyncLifetime
         if (VirtualPhone != null)
             await VirtualPhone.DisposeAsync();
     }
+}
+
+[CollectionDefinition("TestCollection", DisableParallelization = true)]
+public class TestCollectionFixture :
+    ICollectionFixture<ConfigurationFixture>,
+    ICollectionFixture<VirtualPhoneFixture>
+{
 }

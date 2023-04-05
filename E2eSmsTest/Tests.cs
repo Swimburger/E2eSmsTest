@@ -1,6 +1,6 @@
-using E2eSms.Test;
 using Microsoft.Extensions.Configuration;
 using Twilio.Types;
+using Xunit;
 
 namespace E2eSmsTest;
 
@@ -21,9 +21,14 @@ public class Tests
     [Fact]
     public async Task Response_Should_Be_Welcome_Message()
     {
+        // Arrange (includes the fixtures)
         using var conversation = virtualPhone.CreateConversation(toPhoneNumber);
+
+        // Act
         _ = conversation.SendMessage("Hi");
         var message = await conversation.WaitForMessage(TimeSpan.FromSeconds(10));
+
+        // Assert
         Assert.Equal("Welcome to Twilio SMS.  For more information, see http://twilio.com/sms", message.Body);
     }
 
@@ -31,6 +36,7 @@ public class Tests
     public async Task Response_Should_Be_Welcome_Message_Twice()
     {
         using var conversation = virtualPhone.CreateConversation(toPhoneNumber);
+
         _ = conversation.SendMessage("Hi");
         _ = conversation.SendMessage("Hi again");
 
@@ -44,6 +50,7 @@ public class Tests
     public async Task Verify_Survey_Pineapple_And_Cake()
     {
         using var conversation = virtualPhone.CreateConversation(toPhoneNumber);
+
         // start conversation
         await conversation.SendMessage("Hi");
 
