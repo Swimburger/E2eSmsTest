@@ -58,8 +58,12 @@ public class VirtualPhone : IAsyncDisposable
         ChangeServiceLifetime(builder.Services, typeof(TwilioRestClient), ServiceLifetime.Singleton);
 
         var webApplication = builder.Build();
-
-        var virtualPhone = new VirtualPhone(webApplication, builder.Configuration["PhoneNumber"]);
+        
+        var fromPhoneNumber = new PhoneNumber(
+            builder.Configuration["PhoneNumber"] 
+            ?? throw new Exception("PhoneNumber configuration is required")
+        ); 
+        var virtualPhone = new VirtualPhone(webApplication, fromPhoneNumber);
 
         webApplication.UseForwardedHeaders();
         webApplication.MapPost("/message", virtualPhone.MessageEndpoint)
@@ -140,13 +144,13 @@ public class VirtualPhone : IAsyncDisposable
 
     /// <summary>Remove a conversation from the VirtualPhone</summary>
     /// <param name="to">The phone number to send messages to and receive messages from</param>
-    internal void RemoveConversation(PhoneNumber to) => conversations.Remove(to.ToString());
+    private void RemoveConversation(PhoneNumber to) => conversations.Remove(to.ToString());
 
     /// <summary>Send a text message.</summary>
     /// <param name="to">The phone number to send a message to</param>
     /// <param name="body">The body of the text message</param>
     /// <returns>Created message</returns>
-    internal async Task<MessageResource> SendMessage(PhoneNumber to, string body)
+    private async Task<MessageResource> SendMessage(PhoneNumber to, string body)
     {
         var twilioClient = webApplication.Services.GetRequiredService<ITwilioRestClient>();
         return await MessageResource.CreateAsync(
@@ -165,76 +169,68 @@ public class VirtualPhone : IAsyncDisposable
         await webApplication.StopAsync();
         await webApplication.DisposeAsync();
     }
-}
 
-public class Conversation : IDisposable
-{
-    /// <summary>The VirtualPhone to send messages from and receive messages at.</summary>
-    private readonly VirtualPhone virtualPhone;
-
-    /// <summary>Channel to write incoming messages to and read incoming messages from.</summary>
-    private readonly Channel<MessageResource> incomingMessageChannel = Channel.CreateUnbounded<MessageResource>();
-
-    /// <param name="to">The phone number to send messages to and receive messages from</param>
-    public PhoneNumber To { get; init; }
-
-    /// <summary>Create a conversation between your VirtualPhone and the To phone number.</summary>
-    /// <param name="virtualPhone">The VirtualPhone to send messages from and receive messages at</param>
-    /// <param name="to">The phone number to send messages to and receive messages from</param>
-    /// <returns>Created conversation</returns>
-    internal Conversation(VirtualPhone virtualPhone, PhoneNumber to)
+    public class Conversation : IDisposable
     {
-        this.virtualPhone = virtualPhone;
-        To = to;
-    }
+        /// <summary>The VirtualPhone to send messages from and receive messages at.</summary>
+        private readonly VirtualPhone virtualPhone;
 
-    /// <summary>Send a text message.</summary>
-    /// <param name="body">The body of the text message</param>
-    /// <returns>Created message</returns>
-    public async Task<MessageResource> SendMessage(string body)
-    {
-        var message = await virtualPhone.SendMessage(To, body);
-        return message;
-    }
+        /// <summary>Channel to write incoming messages to and read incoming messages from.</summary>
+        private readonly Channel<MessageResource> incomingMessageChannel = Channel.CreateUnbounded<MessageResource>();
 
-    /// <summary>Called when a message is received from the To phone number, addressed to the VirtualPhone.From number.</summary>
-    /// <param name="message">The incoming message</param>
-    internal async Task OnMessageReceived(MessageResource message)
-    {
-        // no need to wait Task, discard
-        await incomingMessageChannel.Writer.WriteAsync(message);
-    }
+        /// <summary>The phone number to send messages to and receive messages from</summary>
+        private readonly PhoneNumber to;
 
-    /// <summary>Waits for a single message to be received from the To phone number.</summary>
-    /// <param name="timeToWait">The amount of time to wait before cancelling the operation</param>
-    /// <returns>The received message</returns>
-    public async ValueTask<MessageResource> WaitForMessage(TimeSpan timeToWait)
-    {
-        using var cts = new CancellationTokenSource(timeToWait);
-        return await incomingMessageChannel.Reader.ReadAsync(cts.Token);
-    }
-
-    /// <summary>Waits for multiple messages to be received from the To phone number.</summary>
-    /// <param name="amountOfMessages">The amount of messages to wait for.</param>
-    /// <param name="timeToWait">The amount of time to wait before cancelling the operation</param>
-    /// <returns>The received messages</returns>
-    public async Task<MessageResource[]> WaitForMessages(int amountOfMessages, TimeSpan timeToWait)
-    {
-        var messages = new MessageResource[amountOfMessages];
-        using var cts = new CancellationTokenSource(timeToWait);
-        for (int i = 0; i < amountOfMessages; i++)
+        /// <summary>Create a conversation between your VirtualPhone and the To phone number.</summary>
+        /// <param name="virtualPhone">The VirtualPhone to send messages from and receive messages at</param>
+        /// <param name="to">The phone number to send messages to and receive messages from</param>
+        /// <returns>Created conversation</returns>
+        internal Conversation(VirtualPhone virtualPhone, PhoneNumber to)
         {
-            messages[i] = await incomingMessageChannel.Reader.ReadAsync(cts.Token);
+            this.virtualPhone = virtualPhone;
+            this.to = to;
         }
 
-        return messages;
-    }
+        /// <summary>Send a text message.</summary>
+        /// <param name="body">The body of the text message</param>
+        /// <returns>Created message</returns>
+        public async Task<MessageResource> SendMessage(string body)
+        {
+            var message = await virtualPhone.SendMessage(to, body);
+            return message;
+        }
 
-    /// <summary>
-    /// Dipose the conversation which removes it from the VirtualPhone.
-    /// </summary>
-    public void Dispose()
-    {
-        virtualPhone.RemoveConversation(To);
+        /// <summary>Called when a message is received from the To phone number, addressed to the VirtualPhone.From number.</summary>
+        /// <param name="message">The incoming message</param>
+        internal async Task OnMessageReceived(MessageResource message)
+            => await incomingMessageChannel.Writer.WriteAsync(message);
+
+        /// <summary>Waits for a single message to be received from the To phone number.</summary>
+        /// <param name="timeToWait">The amount of time to wait before cancelling the operation</param>
+        /// <returns>The received message</returns>
+        public async ValueTask<MessageResource> WaitForMessage(TimeSpan timeToWait)
+        {
+            using var cts = new CancellationTokenSource(timeToWait);
+            return await incomingMessageChannel.Reader.ReadAsync(cts.Token);
+        }
+
+        /// <summary>Waits for multiple messages to be received from the To phone number.</summary>
+        /// <param name="amountOfMessages">The amount of messages to wait for.</param>
+        /// <param name="timeToWait">The amount of time to wait before cancelling the operation</param>
+        /// <returns>The received messages</returns>
+        public async Task<MessageResource[]> WaitForMessages(int amountOfMessages, TimeSpan timeToWait)
+        {
+            var messages = new MessageResource[amountOfMessages];
+            using var cts = new CancellationTokenSource(timeToWait);
+            for (int i = 0; i < amountOfMessages; i++)
+            {
+                messages[i] = await incomingMessageChannel.Reader.ReadAsync(cts.Token);
+            }
+
+            return messages;
+        }
+
+        /// <summary>Dipose the conversation which removes it from the VirtualPhone.</summary>
+        public void Dispose() => virtualPhone.RemoveConversation(to);
     }
 }

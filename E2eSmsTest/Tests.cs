@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Twilio.Types;
 using Xunit;
 
@@ -8,14 +7,16 @@ namespace E2eSmsTest;
 public class Tests
 {
     private readonly VirtualPhone virtualPhone;
-    private readonly IConfigurationRoot configuration;
     private readonly PhoneNumber toPhoneNumber;
 
     public Tests(VirtualPhoneFixture virtualPhoneFixture, ConfigurationFixture configurationFixture)
     {
         virtualPhone = virtualPhoneFixture.VirtualPhone!;
-        configuration = configurationFixture.Configuration;
-        toPhoneNumber = new PhoneNumber(configuration["ToPhoneNumber"]);
+        var configuration = configurationFixture.Configuration;
+        toPhoneNumber = new PhoneNumber(
+            configuration["ToPhoneNumber"]
+            ?? throw new Exception("ToPhoneNumber is not configured")
+        );
     }
 
     [Fact]
